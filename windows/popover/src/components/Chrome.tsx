@@ -85,6 +85,7 @@ export function Footer({
       <div className="flex min-w-0 flex-col text-[10px] leading-[14px] text-label-2">
         <span className="flex items-center gap-[5px]">
           {payload.version ? `AI Usage ${payload.version}` : "AI Usage"}
+          {payload.installName ? ` · ${payload.installName}` : ""}
           {updatePending ? (
             <span
               aria-label="Update available"

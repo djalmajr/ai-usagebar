@@ -694,6 +694,12 @@ fn host_facts(config: &Config, scoop_app: Option<&ScoopApp>) -> HostFacts {
     facts.updates = config.tray.updates().as_str().into();
     facts.refresh_secs = config.tray.refresh_minutes() * 60;
     facts.installer = if scoop_app.is_some() { "scoop" } else { "zip" }.into();
+    // A bucket may carry this tray under another name (a fork's test
+    // manifest); say so next to the version, since the version alone cannot.
+    facts.install_name = scoop_app
+        .filter(|app| app.name != env!("CARGO_PKG_NAME"))
+        .map(|app| app.name.clone())
+        .unwrap_or_default();
     facts
 }
 
