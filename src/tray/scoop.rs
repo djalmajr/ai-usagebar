@@ -213,20 +213,8 @@ pub const BUCKET_REFRESH_TIMEOUT: Duration = Duration::from_secs(90);
 /// past `timeout`. Its output is not read: nothing in it is ours to show,
 /// and a pipe nobody drains would block the child.
 pub fn run_quietly(argv: &[String], timeout: Duration) -> Result<(), String> {
-    let (program, args) = argv
-        .split_first()
-        .ok_or_else(|| "empty command".to_owned())?;
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(crate::process::CREATE_NO_WINDOW);
-    }
+    let program = argv.first().cloned().unwrap_or_default();
+    let mut command = quiet_command(argv)?;
     let mut child = command
         .spawn()
         .map_err(|e| format!("could not start {program}: {e}"))?;
@@ -249,6 +237,23 @@ pub fn run_quietly(argv: &[String], timeout: Duration) -> Result<(), String> {
 /// Start `argv` detached (no window, no handles) and return at once; the
 /// child outlives this process.
 pub fn spawn_detached(argv: &[String]) -> Result<(), String> {
+    let program = argv.first().cloned().unwrap_or_default();
+    quiet_command(argv)?
+        .spawn()
+        .map(drop)
+        .map_err(|e| format!("could not start {program}: {e}"))
+}
+
+/// Environment variables a parent shell may leave behind that break the
+/// Windows PowerShell Scoop runs in. `PSModulePath` is the one seen in the
+/// wild: a tray started from PowerShell 7 inherits its module path, and
+/// Windows PowerShell 5.1 then loads 7's `Microsoft.PowerShell.Utility`
+/// and loses `Get-FileHash`, which Scoop needs to verify a download.
+const SCRUBBED_ENV: &[&str] = &["PSModulePath"];
+
+/// `argv` as a child with no console window, no inherited handles and a
+/// clean PowerShell environment.
+fn quiet_command(argv: &[String]) -> Result<Command, String> {
     let (program, args) = argv
         .split_first()
         .ok_or_else(|| "empty command".to_owned())?;
@@ -258,15 +263,15 @@ pub fn spawn_detached(argv: &[String]) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    for name in SCRUBBED_ENV {
+        command.env_remove(name);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(crate::process::CREATE_NO_WINDOW);
     }
-    command
-        .spawn()
-        .map(drop)
-        .map_err(|e| format!("could not start {program}: {e}"))
+    Ok(command)
 }
 
 #[cfg(test)]
@@ -416,6 +421,24 @@ mod tests {
             "{script}"
         );
         assert!(!script.contains("O'Brien"), "{script}");
+    }
+
+    #[test]
+    fn quiet_command_scrubs_the_parent_shells_module_path() {
+        let command = quiet_command(&[
+            "powershell.exe".to_owned(),
+            "-Command".to_owned(),
+            "scoop update".to_owned(),
+        ])
+        .unwrap();
+        let removed: Vec<_> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(removed, vec!["PSModulePath"]);
+        assert_eq!(command.get_program(), "powershell.exe");
+        assert!(quiet_command(&[]).is_err());
     }
 
     #[test]
