@@ -1,0 +1,129 @@
+# Fork-only: Windows-only prereleases for testing the tray's Scoop update path.
+#
+# Push an annotated or lightweight tag `dev-vX.Y.Z` on the `dev` branch and this
+# publishes a GitHub *prerelease* named after the tag with the same Windows
+# assets `release.yml` ships (zip, bare exes, `.sha256` sidecars). No Linux
+# builds, no AUR, no version cross-checks: `Cargo.toml` only has to match the
+# tag so the running tray reports the version the bucket manifest carries.
+name: Release (dev, Windows only)
+
+on:
+  push:
+    tags: ["dev-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      TARGET: x86_64-pc-windows-msvc
+      ARTIFACT: ai-usagebar-windows-x86_64
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: version
+        name: Tag and Cargo.toml must agree
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^dev-v(\d+\.\d+\.\d+)$') { throw "not a dev-vX.Y.Z tag: $tag" }
+          $version = $Matches[1]
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($cargo -ne $version) { throw "Cargo.toml says $cargo but the tag says $version" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          key: ${{ env.TARGET }}
+
+      - name: Install nasm (ring assembles its primitives)
+        uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b # v1
+
+      - name: Set up Node (the tray popover is a Vite build)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/popover/package-lock.json
+
+      - name: Install popover dependencies
+        shell: pwsh
+        working-directory: windows/popover
+        run: npm ci
+
+      - name: Popover contract test
+        shell: pwsh
+        run: node windows/popover/popover.test.mjs
+
+      - name: Build release binaries
+        shell: pwsh
+        run: cargo build --release --target $env:TARGET --locked
+
+      - name: Package zip, bare exes and SHA256 sidecars
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifact = $env:ARTIFACT
+          $arch = 'x86_64'
+          $bins = "target/$env:TARGET/release"
+          $binaries = @('ai-usagebar-tray', 'ai-usagebar', 'ai-usagebar-tui')
+
+          function Write-Sidecar([string]$file) {
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
+            $name = Split-Path -Leaf $file
+            [System.IO.File]::WriteAllText("$file.sha256", "$hash  $name`n", [System.Text.UTF8Encoding]::new($false))
+            Write-Host "Built $name sha256=$hash"
+          }
+
+          $stage = Join-Path $env:RUNNER_TEMP 'stage'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          foreach ($bin in $binaries) {
+            Copy-Item "$bins/$bin.exe" (Join-Path $stage "$bin.exe")
+            Copy-Item "$bins/$bin.exe" "$bin-windows-$arch.exe"
+            Write-Sidecar "$bin-windows-$arch.exe"
+          }
+          Copy-Item LICENSE, README.md, config.example.toml $stage
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath "$artifact.zip" -Force
+          Write-Sidecar "$artifact.zip"
+          Remove-Item -Recurse -Force $stage
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ARTIFACT }}
+          if-no-files-found: error
+          path: |
+            ${{ env.ARTIFACT }}.zip
+            ${{ env.ARTIFACT }}.zip.sha256
+            *-windows-x86_64.exe
+            *-windows-x86_64.exe.sha256
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ai-usagebar-windows-x86_64
+          path: dist
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='${{ github.ref_name }}'
+          gh release create "$tag" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "$tag (dev, Windows only)" \
+            --notes "Fork test build of v${{ needs.build.outputs.version }} for the Scoop update path. Not a release of akitaonrails/ai-usagebar."
