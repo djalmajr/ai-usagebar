@@ -18,6 +18,8 @@ mod tui_launch;
 // API. It follows this module's rule — compile everywhere so Linux CI runs its
 // tests — even though only the Windows host calls it.
 mod update_flow;
+// Pure path for the popover's WebView2 profile; same rule as `update_flow`.
+mod profile;
 
 pub use icon::{Severity, tray_icon_rgba};
 pub use payload::{POLL_INTERVAL, host_payload, worst_severity, wrap_report};

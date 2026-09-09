@@ -9,6 +9,18 @@ Each release is also published at
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows popover keeps its layout across updates: the WebView2 profile now
+  lives in `%LOCALAPPDATA%\ai-usagebar\popover` instead of next to the exe.
+  WebView2 defaults its user-data folder to `<exe dir>\<exe>.WebView2\`,
+  which under Scoop is the per-version folder — so every update threw away
+  the Customize layout, theme and dismissed welcome banner (all
+  `localStorage` in that profile) — and under Program Files is not writable
+  at all. `tray::profile::popover_data_dir` is the one path source, next to
+  `detect.json` and the update staging dir; if the folder cannot be created
+  the popover falls back to WebView2's default and still opens.
+
 ## [1.14.0] — 2026-09-08
 
 ### Added
