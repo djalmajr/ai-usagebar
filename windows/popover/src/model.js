@@ -9,6 +9,7 @@
 /** @typedef {import("./lib/types").Row} Row */
 /** @typedef {import("./lib/types").RowPrefs} RowPrefs */
 /** @typedef {import("./lib/types").ExplainedError} ExplainedError */
+/** @typedef {import("./lib/types").Installer} Installer */
 /** @typedef {import("./lib/types").Pace} Pace */
 /** @typedef {import("./lib/types").UpdateInfo} UpdateInfo */
 /** @typedef {import("./lib/types").UpdateMode} UpdateMode */
@@ -35,6 +36,7 @@ export function emptyPayload(hostError) {
     nextRefreshAt: 0,
     startupEnabled: false,
     hostError: hostError || "",
+    installer: "zip",
     primary: "",
     entries: [],
     refreshMinutes: 5,
@@ -70,6 +72,7 @@ function normalizePayload(parsed) {
     nextRefreshAt: Number(parsed.next_refresh_at) || 0,
     startupEnabled: parsed.startup_enabled === true,
     hostError: clean(parsed.host_error, 1200),
+    installer: normalizeInstaller(parsed.installer),
     primary: clean(parsed.primary, 180),
     entries,
     refreshMinutes: normalizeRefreshMinutes(parsed.refresh_minutes),
@@ -99,6 +102,13 @@ const REFRESH_MINUTES = [1, 5, 10];
 function normalizeRefreshMinutes(value) {
   const minutes = Number(value);
   return REFRESH_MINUTES.indexOf(minutes) < 0 ? 5 : minutes;
+}
+
+// How the host was put on disk. Only Scoop changes anything (its updates run
+// `scoop update`); every other value is the plain zip.
+/** @returns {Installer} */
+function normalizeInstaller(value) {
+  return value === "scoop" ? "scoop" : "zip";
 }
 
 /** @returns {UpdateMode} */
@@ -1073,6 +1083,20 @@ export function updateStatusLabel(payload, nowMs) {
 export function updateBannerPending(payload) {
   const update = payload && payload.update;
   return !!update && update.state !== "checking";
+}
+
+// The install button's wording per installer: a Scoop install does not swap
+// exes itself, so the button says who does.
+export function updateButtonLabels(installer) {
+  if (normalizeInstaller(installer) === "scoop") {
+    return { install: "Update via Scoop", installing: "Updating via Scoop…" };
+  }
+  return { install: "Update", installing: "Updating…" };
+}
+
+// Small note under "Check for Updates" when the tray came from Scoop; "" otherwise.
+export function installerHint(installer) {
+  return normalizeInstaller(installer) === "scoop" ? "Installed with Scoop" : "";
 }
 
 export function updateModeLabel(mode) {

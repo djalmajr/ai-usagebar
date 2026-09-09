@@ -33,9 +33,10 @@ use wry::{WebView, WebViewBuilder};
 use super::hotkey::{self, HotkeyBinding};
 use super::icon::{Severity, tray_icon_rgba};
 use super::payload::{HostFacts, UpdateFact, host_payload, worst_severity, wrap_report};
-use super::{startup, tui_launch, update_flow};
+use super::scoop::{self, ScoopApp};
+use super::{RELAUNCH_ENV, startup, tui_launch, update_flow};
 use crate::config::{Config, UpdateMode};
-use crate::update::{CHECK_INTERVAL, Release, UpdateState, sweep_old};
+use crate::update::{CHECK_INTERVAL, Release, UpdateState, is_newer, sweep_old};
 
 // Emitted by `windows/popover` (`npm run build` / `build.rs` on Windows).
 const INDEX_HTML: &str = include_str!("../../windows/popover/dist/index.html");
@@ -59,9 +60,6 @@ const DARK_BACKGROUND: (u8, u8, u8, u8) = (30, 30, 30, 255);
 /// Absorb the mouse-up that opened the popover so it cannot hit the ⋮.
 const CLICK_LOCK_MS: u64 = 400;
 
-/// Set on the process an update relaunches, so it waits for the old one to
-/// release the single-instance mutex instead of quitting at once.
-const RELAUNCH_ENV: &str = "AIUB_TRAY_RELAUNCH";
 /// How long a relaunched process keeps retrying the mutex.
 const RELAUNCH_WAIT: Duration = Duration::from_secs(10);
 
@@ -83,6 +81,8 @@ enum UserEvent {
     Hotkey,
     /// A verified update is in place; start it and quit.
     Restart(PathBuf),
+    /// A Scoop update script is waiting for this process to exit.
+    Quit,
 }
 
 enum WorkerCmd {
@@ -209,7 +209,10 @@ fn run_loop() -> Result<(), String> {
     round_corners(&window);
 
     let config = Config::load().unwrap_or_default();
-    let facts: SharedFacts = Arc::new(Mutex::new(host_facts(&config)));
+    // Once: the exe does not move while it runs. A Scoop install updates
+    // through Scoop; a zip swaps its own exes.
+    let scoop_app = scoop::detect();
+    let facts: SharedFacts = Arc::new(Mutex::new(host_facts(&config, scoop_app.as_ref())));
 
     // Created here because the crate needs the thread that runs the win32
     // message loop; tao's loop is this one.
@@ -230,7 +233,7 @@ fn run_loop() -> Result<(), String> {
     }
 
     let (cmd_tx, cmd_rx) = mpsc::channel();
-    spawn_worker(proxy.clone(), cmd_rx, facts.clone());
+    spawn_worker(proxy.clone(), cmd_rx, facts.clone(), scoop_app);
     let _ = cmd_tx.send(WorkerCmd::Refresh);
 
     let empty = wrap_report("{}", &facts_snapshot(&facts), now_ms(), None);
@@ -296,6 +299,9 @@ fn run_loop() -> Result<(), String> {
                 relaunch(&exe);
                 *control_flow = ControlFlow::Exit;
             }
+            Event::UserEvent(UserEvent::Quit) => {
+                *control_flow = ControlFlow::Exit;
+            }
             Event::UserEvent(UserEvent::FocusPopover) => {
                 if state.popover_open {
                     guard_blur(&mut state);
@@ -347,6 +353,7 @@ fn spawn_worker(
     proxy: EventLoopProxy<UserEvent>,
     rx: mpsc::Receiver<WorkerCmd>,
     facts: SharedFacts,
+    scoop_app: Option<ScoopApp>,
 ) {
     std::thread::Builder::new()
         .name("ai-usagebar-tray-fetch".into())
@@ -361,7 +368,7 @@ fn spawn_worker(
             // turn on the vendors whose credentials already exist locally, so the
             // very first report already carries them.
             run_detection(false);
-            let mut updates = Updates::new(facts.clone(), proxy.clone());
+            let mut updates = Updates::new(facts.clone(), proxy.clone(), scoop_app);
             loop {
                 rt.block_on(push_report(&proxy, &facts));
                 if updates.due() {
@@ -408,20 +415,30 @@ fn spawn_worker(
         .ok();
 }
 
+/// Where a Scoop-installed tray offers the human a release page when the
+/// bucket manifest names no GitHub homepage.
+const RELEASES_PAGE: &str = "https://github.com/akitaonrails/ai-usagebar/releases";
+
 /// Worker-side update machinery: the hourly check, the snooze file and the
 /// install. Every state change lands in the shared facts and is announced
 /// with `UserEvent::Facts` so the popover re-renders at once.
+///
+/// With `scoop` set the check reads the bucket manifest instead of GitHub
+/// and the install runs `scoop update`; the state machine, snooze and
+/// `pending` are the same either way, so the popover cannot tell them apart
+/// except by the `installer` fact.
 struct Updates {
     client: Option<reqwest::Client>,
     facts: SharedFacts,
     pending: Option<Release>,
     proxy: EventLoopProxy<UserEvent>,
+    scoop: Option<ScoopApp>,
     state: UpdateState,
     state_path: Option<PathBuf>,
 }
 
 impl Updates {
-    fn new(facts: SharedFacts, proxy: EventLoopProxy<UserEvent>) -> Self {
+    fn new(facts: SharedFacts, proxy: EventLoopProxy<UserEvent>, scoop: Option<ScoopApp>) -> Self {
         let state_path = crate::update::default_state_path().ok();
         let state = state_path
             .as_deref()
@@ -432,6 +449,7 @@ impl Updates {
             facts,
             pending: None,
             proxy,
+            scoop,
             state,
             state_path,
         }
@@ -486,7 +504,10 @@ impl Updates {
             });
             self.announce();
         }
-        let outcome = update_flow::check(&client, env!("CARGO_PKG_VERSION")).await;
+        let outcome = match self.scoop.as_ref() {
+            Some(app) => check_scoop(app, env!("CARGO_PKG_VERSION"), manual),
+            None => update_flow::check(&client, env!("CARGO_PKG_VERSION")).await,
+        };
         match outcome {
             Ok(Some(release)) => {
                 let snoozed =
@@ -553,6 +574,21 @@ impl Updates {
                 });
             });
         };
+        if let Some(app) = self.scoop.clone() {
+            // Scoop does the download; the tray only has to get out of the way.
+            set_state(&self.facts, "installing", String::new());
+            self.announce();
+            match install_via_scoop(&app) {
+                Ok(()) => {
+                    let _ = self.proxy.send_event(UserEvent::Quit);
+                }
+                Err(error) => {
+                    set_state(&self.facts, "failed", error);
+                    self.announce();
+                }
+            }
+            return;
+        }
         set_state(&self.facts, "downloading", String::new());
         self.announce();
         match update_flow::install(&client, &release).await {
@@ -590,6 +626,57 @@ impl Updates {
     }
 }
 
+/// The Scoop counterpart of `update_flow::check`: refresh the buckets, then
+/// read the version the bucket offers. `Ok(None)` is "up to date". The
+/// refresh is best effort — a stale manifest still answers — but a manual
+/// check that could not refresh and found nothing newer says so rather than
+/// claiming "up to date" off an old manifest.
+fn check_scoop(app: &ScoopApp, current: &str, manual: bool) -> Result<Option<Release>, String> {
+    let refreshed = scoop::run_quietly(
+        &scoop::refresh_buckets_command(),
+        scoop::BUCKET_REFRESH_TIMEOUT,
+    );
+    let Some(version) = app.bucket_manifest_version() else {
+        return Err(match refreshed {
+            Ok(()) => "could not read the Scoop bucket manifest".into(),
+            Err(error) => format!("Scoop bucket refresh failed ({error})"),
+        });
+    };
+    if is_newer(current, &version) {
+        return Ok(Some(Release {
+            assets: Vec::new(),
+            html_url: app
+                .bucket_manifest_homepage()
+                .unwrap_or_else(|| RELEASES_PAGE.into()),
+            version,
+        }));
+    }
+    match refreshed {
+        Err(error) if manual => Err(format!("Scoop bucket refresh failed ({error})")),
+        _ => Ok(None),
+    }
+}
+
+/// Hand the update to a detached PowerShell: it waits for this process,
+/// runs `scoop update`, and relaunches the tray. The caller quits the event
+/// loop once this returns `Ok`. A debug build refuses, as the zip path does.
+fn install_via_scoop(app: &ScoopApp) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Err("This is a development build; rebuild from source to update.".into());
+    }
+    let updates_dir = crate::cache::xdg_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("ai-usagebar")
+        .join("updates");
+    std::fs::create_dir_all(&updates_dir)
+        .map_err(|e| format!("could not create {}: {e}", updates_dir.display()))?;
+    let log = updates_dir.join("scoop.log");
+    // SAFETY: GetCurrentProcessId has no preconditions.
+    let pid = unsafe { GetCurrentProcessId() };
+    let script = app.update_script(pid, &log);
+    scoop::spawn_detached(&scoop::powershell_command(&script))
+}
+
 /// Best-effort: detection never blocks or fails the report. `force` re-probes
 /// every vendor (Options → Detect Providers); otherwise only vendors this
 /// install has not seen before are probed, so a vendor the user turned off
@@ -602,10 +689,11 @@ fn run_detection(force: bool) {
 
 /// Facts about this process at startup; the shortcut and update fields are
 /// filled in as the host learns them.
-fn host_facts(config: &Config) -> HostFacts {
+fn host_facts(config: &Config, scoop_app: Option<&ScoopApp>) -> HostFacts {
     let mut facts = HostFacts::new(env!("CARGO_PKG_VERSION"), startup::is_enabled());
     facts.updates = config.tray.updates().as_str().into();
     facts.refresh_secs = config.tray.refresh_minutes() * 60;
+    facts.installer = if scoop_app.is_some() { "scoop" } else { "zip" }.into();
     facts
 }
 

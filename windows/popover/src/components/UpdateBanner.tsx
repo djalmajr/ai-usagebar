@@ -1,10 +1,11 @@
 import MdiArrowDownCircle from "~icons/mdi/arrow-down-circle-outline";
 import MdiClose from "~icons/mdi/close";
-import type { UpdateInfo } from "@/lib/types";
+import type { Installer, UpdateInfo } from "@/lib/types";
 import { useBusyLabel } from "@/lib/useBusyLabel";
-import { sendCommand } from "../model.js";
+import { sendCommand, updateButtonLabels } from "../model.js";
 
 interface UpdateBannerProps {
+  installer: Installer;
   update: UpdateInfo;
 }
 
@@ -18,19 +19,22 @@ const ACTION_LABEL: Record<UpdateInfo["state"], string> = {
 
 /**
  * Same anatomy as HintCard: icon, title + message + small action button, ✕ in the corner. The
- * ✕ snoozes the update; it is hidden while a download or install is under way.
+ * ✕ snoozes the update; it is hidden while a download or install is under way. A Scoop install
+ * names Scoop on the button, since `scoop update` is what runs.
  */
-export function UpdateBanner({ update }: UpdateBannerProps) {
+export function UpdateBanner({ installer, update }: UpdateBannerProps) {
   const [clicked, startClicked] = useBusyLabel();
 
   const busy = clicked !== null || update.state === "downloading" || update.state === "installing";
   const version = update.version.replace(/^v/i, "");
+  const labels = updateButtonLabels(installer);
   const message =
     clicked ?? (update.state === "failed" ? `Couldn't update: ${update.error}` : `AI Usage v${version} is ready to install.`);
-  const actionLabel = clicked ?? ACTION_LABEL[update.state];
+  const actionLabel =
+    clicked ?? (update.state === "available" && installer === "scoop" ? labels.install : ACTION_LABEL[update.state]);
 
   function onInstall() {
-    startClicked("Updating…");
+    startClicked(labels.installing);
     sendCommand("install-update");
   }
   return (

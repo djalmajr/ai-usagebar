@@ -36,6 +36,22 @@ The process has no console. If a second instance is started, it exits
 immediately. Pin the icon in the Windows 11 notification overflow so it stays
 visible.
 
+### Install with Scoop
+
+A [Scoop](https://scoop.sh) package exists in a community bucket until an
+official one does:
+
+```powershell
+scoop bucket add djalmajr https://github.com/djalmajr/scoop-bucket
+scoop install ai-usagebar
+```
+
+It puts `ai-usagebar-tray.exe`, `ai-usagebar.exe` and `ai-usagebar-tui.exe`
+on PATH through Scoop's shims. Start the tray with `ai-usagebar-tray` (or
+**Start with Windows** from its menu). A tray started from a Scoop install
+knows it (the exe sits under `<scoop>\apps\ai-usagebar\`) and updates through
+Scoop; see "Updates" below.
+
 ## Gestures
 
 | Action | Result |
@@ -107,6 +123,18 @@ running executable for the new one and leaves the previous build as
 assets it looks for (`ai-usagebar-<bin>-windows-x86_64.exe` + `.sha256`) are
 produced by the Windows job in `.github/workflows/release.yml`, so the first
 release cut after this change is the first one the tray can install.
+
+**Installed with Scoop** (the Settings line says so): the tray never swaps
+exes under Scoop's tree. A check runs `scoop update` (refreshing every
+bucket) and reads the version in the bucket's manifest; the button then
+reads **Update via Scoop**. Installing starts a detached PowerShell that
+waits for the tray to exit, runs `scoop update ai-usagebar`, and starts the
+new tray from `apps\ai-usagebar\current` — the tray quits itself for that,
+so a few seconds without the icon are expected. The transcript of that run
+is `%LOCALAPPDATA%\ai-usagebar\updates\scoop.log`. Because the exe path
+changes with the version, Explorer may move the icon back into the
+notification overflow after an update; pin it again. **Automatic** mode
+goes through the same path.
 
 ## When the popover closes
 
