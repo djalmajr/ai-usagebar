@@ -9,6 +9,15 @@ Each release is also published at
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows popover: a meter at 100 % no longer shows the pace tick.** A row
+  that is fully used reads "Limit reached", yet `pace()` still returned a
+  `behind` verdict for it, so the even-pace tick sat on the bar as if there
+  were room left (Cursor "Other Models" at 100 % showed one near 90 %). A spent
+  row now has no pace at all, matching OpenUsage; one percent short of the
+  limit still gets its tick.
+
 ## [1.14.0] — 2026-09-08
 
 ### Added
