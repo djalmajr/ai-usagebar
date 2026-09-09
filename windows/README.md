@@ -173,7 +173,7 @@ OpenUsage does on a fresh install: for every vendor it has not seen before it
 checks — on this machine only, never over the network — whether a credential
 already exists, and writes `enabled = true` into `config.toml` for the ones
 that do. It never turns a vendor off, and it never re-checks a vendor it has
-already seen (`%LOCALAPPDATA%ai-usagebardetect.json` remembers them), so
+already seen (`%LOCALAPPDATA%\ai-usagebar\detect.json` remembers them), so
 your own `enabled` choices always win. **Options → Detect Providers** re-runs
 the check for every vendor on demand, for example after signing in to a new
 tool. The same detection is available everywhere as `ai-usagebar detect`
@@ -205,6 +205,9 @@ Open TUI launches `ai-usagebar-tui` in Windows Terminal (`wt.exe -e …`) when
 present, otherwise `conhost.exe`. Provider keys stay in the TUI (`s`).
 Provider order, hidden providers, Always Visible / On Demand rows, theme,
 density, “show usage as” and reset-time format are remembered in the popover.
+That memory is the popover's WebView2 profile, kept in
+`%LOCALAPPDATA%\ai-usagebar\popover\`, so it survives updates and moves of
+the install directory.
 Provider marks live in `windows/popover/src/icons/providers/` (OpenUsage, MIT;
 simple-icons, CC0) and load through an `unplugin-icons` custom collection;
 a provider without a mark shows its initials — including `[[custom]]`
