@@ -9,6 +9,21 @@ Each release is also published at
 
 ## [Unreleased]
 
+### Added
+
+- **Windows tray: Scoop-aware updates.** A tray whose exe lives under
+  `<scoop>\apps\ai-usagebar\` (the `current` junction or the resolved
+  version directory, with Scoop's `shims` beside it) reports
+  `installer: "scoop"` in the popover payload and updates through Scoop
+  instead of swapping exes in place: **Check Now** refreshes the buckets and
+  reads the bucket manifest's version, and **Update via Scoop** hands a
+  detached PowerShell `scoop update ai-usagebar` that waits for the tray to
+  exit and relaunches it from `current`, transcribed to
+  `updates\scoop.log` in the cache directory. The GitHub release check and
+  the in-place swap remain the zip install's path. `src/tray/scoop.rs` holds
+  the detection, the manifest parsers and the script, compiled and tested on
+  every OS. `windows/README.md` documents the community bucket.
+
 ### Changed
 
 - **Windows popover: credit blocks read as one row.** Codex's `Credits` and

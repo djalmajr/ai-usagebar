@@ -7,6 +7,9 @@
 pub mod hotkey;
 mod icon;
 mod payload;
+// Scoop detection, manifest parsing and the update script: paths and text,
+// no Windows API, so Linux CI tests it; only the host spawns anything.
+mod scoop;
 
 #[cfg(windows)]
 mod host;
@@ -20,6 +23,11 @@ mod tui_launch;
 mod update_flow;
 
 pub use icon::{Severity, tray_icon_rgba};
+
+/// Set on the process an update relaunches, so it waits for the old one to
+/// release the single-instance mutex instead of quitting at once. Shared by
+/// the in-place relaunch and the Scoop update script.
+pub const RELAUNCH_ENV: &str = "AIUB_TRAY_RELAUNCH";
 pub use payload::{POLL_INTERVAL, host_payload, worst_severity, wrap_report};
 
 /// Process entry for `ai-usagebar-tray`.

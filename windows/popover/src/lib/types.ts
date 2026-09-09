@@ -139,6 +139,8 @@ export interface Entry {
   status: string;
 }
 
+export type Installer = "scoop" | "zip";
+
 export type UpdateMode = "auto" | "notify" | "off";
 
 export type UpdateState = "available" | "checking" | "downloading" | "failed" | "installing";
@@ -155,6 +157,8 @@ export interface Payload {
   entries: Entry[];
   generatedAt: number;
   hostError: string;
+  /** How the host was installed; a Scoop install updates through Scoop. */
+  installer: Installer;
   nextRefreshAt: number;
   primary: string;
   /** Host refresh interval; one of 1, 5 or 10. */

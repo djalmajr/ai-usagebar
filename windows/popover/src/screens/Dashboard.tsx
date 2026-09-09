@@ -67,7 +67,7 @@ export function Dashboard({
   const banner =
     payload.update && updateBannerPending(payload) ? (
       <div className="mb-[var(--section-gap)]">
-        <UpdateBanner update={payload.update} />
+        <UpdateBanner installer={payload.installer} update={payload.update} />
       </div>
     ) : null;
   if (visible.length === 0) {

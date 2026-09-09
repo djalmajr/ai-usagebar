@@ -58,6 +58,8 @@ import {
   updateStatusLabel,
   updateBannerPending,
   updateModeLabel,
+  updateButtonLabels,
+  installerHint,
 } from './src/model.js';
 
 const report = {
@@ -754,6 +756,27 @@ assert.equal(resetAlternate(badStampRow, 'exact', resetNow, utc), '');
   assert.equal(updateModeLabel('off'), 'Off');
   assert.equal(updateModeLabel('whenever'), 'Notify me');
   assert.equal(updateModeLabel(undefined), 'Notify me');
+}
+
+// --- installer: Scoop vs zip --------------------------------------------------
+
+{
+  // ARRANGE / ACT: the host names its installer; anything unknown is the zip
+  // ASSERT: only "scoop" survives, and the default is the zip
+  assert.equal(parseHostPayload({ installer: 'scoop' }).installer, 'scoop');
+  assert.equal(parseHostPayload({ installer: 'zip' }).installer, 'zip');
+  assert.equal(parseHostPayload({ installer: 'msi' }).installer, 'zip');
+  assert.equal(parseHostPayload({}).installer, 'zip');
+  assert.equal(emptyPayload().installer, 'zip');
+  assert.equal(payload.installer, 'zip');
+
+  // ASSERT: the install button names Scoop when Scoop does the update
+  assert.deepEqual(updateButtonLabels('scoop'), { install: 'Update via Scoop', installing: 'Updating via Scoop…' });
+  assert.deepEqual(updateButtonLabels('zip'), { install: 'Update', installing: 'Updating…' });
+  assert.deepEqual(updateButtonLabels(undefined), { install: 'Update', installing: 'Updating…' });
+  assert.equal(installerHint('scoop'), 'Installed with Scoop');
+  assert.equal(installerHint('zip'), '');
+  assert.equal(installerHint('nope'), '');
 }
 
 // --- SuperGrok labels / displayPlan equality ----------------------------------

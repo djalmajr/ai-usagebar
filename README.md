@@ -205,6 +205,11 @@ cargo build --release
 .\target\release\ai-usagebar-tray.exe
 ```
 
+Or install with [Scoop](https://scoop.sh) from a community bucket
+(`scoop bucket add djalmajr https://github.com/djalmajr/scoop-bucket`, then
+`scoop install ai-usagebar`); a tray installed that way updates itself through
+`scoop update` instead of swapping its exes.
+
 Pin the icon in the Windows 11 notification overflow if it hides behind the
 chevron. Right-click the icon for Refresh, Detect Providers, Open TUI, Start
 with Windows, and Quit; left-click opens the popover. On its first run the
