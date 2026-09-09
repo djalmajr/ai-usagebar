@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import type { Layout, Payload } from "@/lib/types";
 import { useBusyLabel } from "@/lib/useBusyLabel";
-import { installerHint, sendCommand, updateButtonLabels, updateModeLabel, updateStatusLabel } from "../model.js";
+import { sendCommand, updateModeLabel, updateStatusLabel } from "../model.js";
 
 interface SettingsProps {
   layout: Layout;
@@ -36,16 +36,13 @@ export function Settings({
 }: SettingsProps) {
   const [busy, startBusy] = useBusyLabel();
 
-  const labels = updateButtonLabels(payload.installer);
-  const hostButton = updateButtonFor(payload.update, payload.installer);
+  const hostButton = updateButtonFor(payload.update);
   const updateButton = busy ? { ...hostButton, disabled: true, label: busy } : hostButton;
   // The button already says what is happening; the line keeps the last known state.
-  const hint = installerHint(payload.installer);
   const updateStatus = updateStatusLabel(payload, nowMs);
-  const statusLine = hint ? `${updateStatus} · ${hint}` : updateStatus;
 
   function onUpdateClick() {
-    startBusy(hostButton.cmd === "check-update" ? "Checking…" : labels.installing);
+    startBusy(hostButton.cmd === "check-update" ? "Checking…" : "Updating…");
     sendCommand(hostButton.cmd);
   }
 
@@ -162,7 +159,7 @@ export function Settings({
           <div className="flex min-w-0 flex-1 flex-col">
             <span>Check for Updates</span>
             <span className="text-[length:var(--sz-badge)] leading-[1.35] break-words text-label-2 [overflow-wrap:anywhere]">
-              {statusLine}
+              {updateStatus}
             </span>
           </div>
           <button
@@ -257,18 +254,17 @@ interface UpdateButton {
 /**
  * "Check Now" only while nothing is known; once a release is found the same
  * button installs it, so the row never asks the user to check again for an
- * answer it already has. The install wording names Scoop when Scoop does it.
+ * answer it already has.
  */
-function updateButtonFor(update: Payload["update"], installer: Payload["installer"]): UpdateButton {
-  const labels = updateButtonLabels(installer);
+function updateButtonFor(update: Payload["update"]): UpdateButton {
   switch (update?.state) {
     case "checking":
       return { cmd: "check-update", disabled: true, label: "Checking…" };
     case "available":
-      return { cmd: "install-update", disabled: false, label: labels.install };
+      return { cmd: "install-update", disabled: false, label: "Update" };
     case "downloading":
     case "installing":
-      return { cmd: "install-update", disabled: true, label: labels.installing };
+      return { cmd: "install-update", disabled: true, label: "Updating…" };
     case "failed":
       return { cmd: "install-update", disabled: false, label: "Try Again" };
     default:

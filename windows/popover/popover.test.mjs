@@ -56,8 +56,6 @@ import {
   updateStatusLabel,
   updateBannerPending,
   updateModeLabel,
-  updateButtonLabels,
-  installerHint,
 } from './src/model.js';
 
 const report = {
@@ -745,18 +743,9 @@ assert.equal(resetAlternate(badStampRow, 'exact', resetNow, utc), '');
   assert.equal(updateModeLabel(undefined), 'Notify me');
 }
 
-// --- installer: Scoop vs zip --------------------------------------------------
+// --- install name: the package the installer knows this build by ----------
 
 {
-  // ARRANGE / ACT: the host names its installer; anything unknown is the zip
-  // ASSERT: only "scoop" survives, and the default is the zip
-  assert.equal(parseHostPayload({ installer: 'scoop' }).installer, 'scoop');
-  assert.equal(parseHostPayload({ installer: 'zip' }).installer, 'zip');
-  assert.equal(parseHostPayload({ installer: 'msi' }).installer, 'zip');
-  assert.equal(parseHostPayload({}).installer, 'zip');
-  assert.equal(emptyPayload().installer, 'zip');
-  assert.equal(payload.installer, 'zip');
-
   // ASSERT: the installer's own name for this build rides along (a fork's
   // manifest), cleaned and bounded; absent means the product's own name
   assert.equal(parseHostPayload({ install_name: 'ai-usagebar-dev' }).installName, 'ai-usagebar-dev');
@@ -764,14 +753,6 @@ assert.equal(resetAlternate(badStampRow, 'exact', resetNow, utc), '');
   assert.equal(parseHostPayload({ install_name: 'n'.repeat(100) }).installName.length, 64);
   assert.equal(parseHostPayload({}).installName, '');
   assert.equal(emptyPayload().installName, '');
-
-  // ASSERT: the install button names Scoop when Scoop does the update
-  assert.deepEqual(updateButtonLabels('scoop'), { install: 'Update via Scoop', installing: 'Updating via Scoop…' });
-  assert.deepEqual(updateButtonLabels('zip'), { install: 'Update', installing: 'Updating…' });
-  assert.deepEqual(updateButtonLabels(undefined), { install: 'Update', installing: 'Updating…' });
-  assert.equal(installerHint('scoop'), 'Installed with Scoop');
-  assert.equal(installerHint('zip'), '');
-  assert.equal(installerHint('nope'), '');
 }
 
 // --- SuperGrok labels / displayPlan equality ----------------------------------
