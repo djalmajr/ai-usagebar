@@ -157,6 +157,8 @@ export interface Payload {
   entries: Entry[];
   generatedAt: number;
   hostError: string;
+  /** The installer's name for this build when it is not the product's own (e.g. a fork's Scoop manifest), else "". */
+  installName: string;
   /** How the host was installed; a Scoop install updates through Scoop. */
   installer: Installer;
   nextRefreshAt: number;

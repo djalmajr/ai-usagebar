@@ -770,6 +770,14 @@ assert.equal(resetAlternate(badStampRow, 'exact', resetNow, utc), '');
   assert.equal(emptyPayload().installer, 'zip');
   assert.equal(payload.installer, 'zip');
 
+  // ASSERT: the installer's own name for this build rides along (a fork's
+  // manifest), cleaned and bounded; absent means the product's own name
+  assert.equal(parseHostPayload({ install_name: 'ai-usagebar-dev' }).installName, 'ai-usagebar-dev');
+  assert.equal(parseHostPayload({ install_name: 'x[31m' }).installName, 'x[31m');
+  assert.equal(parseHostPayload({ install_name: 'n'.repeat(100) }).installName.length, 64);
+  assert.equal(parseHostPayload({}).installName, '');
+  assert.equal(emptyPayload().installName, '');
+
   // ASSERT: the install button names Scoop when Scoop does the update
   assert.deepEqual(updateButtonLabels('scoop'), { install: 'Update via Scoop', installing: 'Updating via Scoop…' });
   assert.deepEqual(updateButtonLabels('zip'), { install: 'Update', installing: 'Updating…' });

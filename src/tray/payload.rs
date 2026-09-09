@@ -18,6 +18,10 @@ pub const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30
 /// machinery. One struct so a new fact does not grow `wrap_report`'s arity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostFacts {
+    /// The package name the installer knows this tray by when it is not the
+    /// product's own (a Scoop app called `ai-usagebar-dev`), so the popover
+    /// can say which build it is looking at; empty otherwise.
+    pub install_name: String,
     /// How this tray was put on disk: "scoop" (updates run `scoop update`)
     /// or "zip" (updates swap the exes in place).
     pub installer: String,
@@ -64,6 +68,7 @@ impl HostFacts {
 impl Default for HostFacts {
     fn default() -> Self {
         Self {
+            install_name: String::new(),
             installer: "zip".into(),
             refresh_secs: POLL_INTERVAL.as_secs(),
             shortcut: String::new(),
@@ -98,6 +103,7 @@ pub fn wrap_report(
     let mut payload = json!({
         "version": facts.version,
         "installer": facts.installer,
+        "install_name": sanitize_untrusted_field(&facts.install_name),
         "generated_at": now_ms,
         "next_refresh_at": now_ms.saturating_add(poll_ms),
         "refresh_minutes": facts.refresh_secs / 60,
@@ -329,6 +335,7 @@ mod tests {
         let payload = wrap_report(&sample_report(), &facts("1.10.0", true), 1_000, None);
         assert_eq!(payload["version"], "1.10.0");
         assert_eq!(payload["installer"], "zip");
+        assert_eq!(payload["install_name"], "");
         assert_eq!(payload["generated_at"], 1_000);
         assert_eq!(payload["next_refresh_at"], 301_000);
         assert_eq!(payload["refresh_minutes"], 5);
@@ -350,6 +357,7 @@ mod tests {
         host.shortcut_error = "already taken\u{1b}[31m".into();
         host.updates = "auto".into();
         host.installer = "scoop".into();
+        host.install_name = "ai-usagebar-dev\u{1b}[0m".into();
         host.update_checked_at = 42;
         host.update = Some(UpdateFact {
             error: String::new(),
@@ -367,6 +375,13 @@ mod tests {
         );
         assert_eq!(payload["updates"], "auto");
         assert_eq!(payload["installer"], "scoop");
+        assert!(
+            payload["install_name"]
+                .as_str()
+                .unwrap()
+                .starts_with("ai-usagebar-dev")
+        );
+        assert!(!payload["install_name"].as_str().unwrap().contains('\u{1b}'));
         assert_eq!(payload["update_checked_at"], 42);
         assert_eq!(payload["update"]["version"], "1.11.0");
         assert_eq!(payload["update"]["state"], "available");
