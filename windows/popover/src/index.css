@@ -229,6 +229,24 @@ body {
   pointer-events: none;
 }
 
+/* Status dot before a folded block's value: accent by default, then the meter
+   colors as the soonest expiry approaches. The tokens already swap for dark. */
+.status-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.status-dot[data-severity="warning"] {
+  background: var(--orange);
+}
+
+.status-dot[data-severity="critical"] {
+  background: var(--red);
+}
+
 /* Reorder grip (line.3.horizontal, 12pt semibold, tertiary, 16×22). */
 .grip {
   display: inline-flex;

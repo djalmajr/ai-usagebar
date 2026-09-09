@@ -40,6 +40,8 @@ import {
   resetAlternate,
   formatResetExact,
   condensedTextRowIndexes,
+  expirySeverity,
+  blockTooltip,
   providerIconId,
   initialsGlyph,
   metricCount,
@@ -980,6 +982,65 @@ assert.equal(headlineLabel({ kind: 'text', label: 'Balance', value: '$1' }, 'lef
 assert.equal(headlineAlternate({ kind: 'metric', leftPercent: 0, usedPercent: 100 }, 'left'), '100% used');
 assert.equal(headlineAlternate({ kind: 'metric', leftPercent: 81, usedPercent: 19 }, 'used'), '81% left');
 assert.equal(headlineAlternate(null, 'left'), '');
+
+// --- block summary / expiries -------------------------------------------------
+{
+  // ARRANGE: a summarized block, a block with no summary, and one with odd expiries
+  const soon = '2026-09-06T00:00:00Z';
+  const later = '2026-09-20T00:00:00Z';
+  const blocks = parseHostPayload({
+    version: '1',
+    entries: [{
+      id: 'p',
+      display_name: 'P',
+      sections: [
+        { type: 'block', label: 'Reset credits', body: ['a', 'b'], summary: '3 available', expiries: [later, soon] },
+        { type: 'block', label: 'Breakdown', body: ['granted $2.50'] },
+        { type: 'block', label: 'Odd', body: ['x'], summary: 'y'.repeat(200), expiries: ['not a date', 7, null, soon] },
+      ],
+    }],
+  });
+  // ACT
+  const rows = projectCards(blocks, 0)[0].rows;
+  // ASSERT: passthrough
+  assert.equal(rows[0].kind, 'block');
+  assert.equal(rows[0].summary, '3 available');
+  assert.deepEqual(rows[0].expiries, [Date.parse(later), Date.parse(soon)]);
+  assert.deepEqual(rows[0].body, ['a', 'b']);
+  // defaults: a block without the optional keys is unchanged apart from the empty defaults
+  assert.deepEqual(rows[1], { kind: 'block', label: 'Breakdown', body: ['granted $2.50'], summary: '', expiries: [], key: rows[1].key });
+  // invalid expiries dropped, summary bounded
+  assert.deepEqual(rows[2].expiries, [Date.parse(soon)]);
+  assert.equal(rows[2].summary.length, 80);
+}
+{
+  // expiries are capped at 16 entries
+  const many = Array.from({ length: 20 }, (_, i) => new Date(Date.UTC(2026, 8, 10 + i)).toISOString());
+  const capped = parseHostPayload({
+    version: '1',
+    entries: [{ id: 'p', sections: [{ type: 'block', label: 'L', body: ['x'], summary: 's', expiries: many }] }],
+  });
+  assert.equal(projectCards(capped, 0)[0].rows[0].expiries.length, 16);
+}
+
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+assert.equal(expirySeverity([], 0), null);
+assert.equal(expirySeverity(null, 0), null);
+assert.equal(expirySeverity(['nope'], 0), null);
+assert.equal(expirySeverity([48 * HOUR], 0), 'critical');
+assert.equal(expirySeverity([48 * HOUR + 1], 0), 'warning');
+assert.equal(expirySeverity([7 * DAY], 0), 'warning');
+assert.equal(expirySeverity([7 * DAY + 1], 0), 'normal');
+assert.equal(expirySeverity([-HOUR], 0), 'critical');
+// the soonest expiry decides, whatever the order
+assert.equal(expirySeverity([30 * DAY, 10 * DAY, HOUR], 0), 'critical');
+assert.equal(expirySeverity([30 * DAY, 10 * DAY, 3 * DAY], 0), 'warning');
+
+assert.equal(blockTooltip({ kind: 'block', body: ['Full reset · expires Sep 20', 'Full reset · expires Sep 22'] }), 'Full reset · expires Sep 20\nFull reset · expires Sep 22');
+assert.equal(blockTooltip({ kind: 'block', body: [] }), '');
+assert.equal(blockTooltip({ kind: 'block' }), '');
+assert.equal(blockTooltip(null), '');
 
 // --- condensedTextRowIndexes -------------------------------------------------
 

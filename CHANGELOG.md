@@ -9,6 +9,22 @@ Each release is also published at
 
 ## [Unreleased]
 
+### Changed
+
+- **Windows popover: credit blocks read as one row.** Codex's `Credits` and
+  the Codex/SuperGrok `Reset credits` blocks no longer print their detail
+  lines under the label. Each is one line — label on the left, the balance
+  or `3 available` on the right — with a small dot before the value colored
+  by the soonest expiry (accent, amber under 7 days, red under 48 h). The
+  per-credit detail moved to the hover. Blocks without a one-line reading
+  render exactly as before. A Codex credit balance the API sends as a bare
+  numeric string (`"0"`) is now formatted like a number (`$0.00`).
+- **`usage --json`: two optional block fields.** A `block` section may now
+  carry `summary` (its one-line reading, e.g. `"$0.00"` or `"3 available"`)
+  and `expiries` (the RFC 3339 instants its rows expire at). Both are
+  omitted when absent, so every existing block serializes byte-for-byte as
+  before; `body` is unchanged.
+
 ## [1.14.0] — 2026-09-08
 
 ### Added

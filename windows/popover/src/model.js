@@ -178,9 +178,58 @@ function normalizeSection(raw) {
       type: "block",
       label: clean(raw.label, 160),
       body: body.slice(0, 24).map((line) => clean(line, 1000)),
+      summary: clean(raw.summary, 80),
+      expiries: expiryTimes(raw.expiries),
     };
   }
   return null;
+}
+
+// RFC 3339 instants the host attached to a block, as epoch ms; anything that
+// is not one is dropped so one odd value never hides the others. The shape is
+// checked first because Date.parse accepts far more than RFC 3339.
+const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+
+function expiryTimes(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (let i = 0; i < list.length && out.length < 16; i++) {
+    const text = list[i];
+    if (typeof text !== "string" || !RFC3339.test(text)) continue;
+    const at = Date.parse(text);
+    if (Number.isFinite(at)) out.push(at);
+  }
+  return out;
+}
+
+const EXPIRY_CRITICAL_MS = 48 * 60 * 60 * 1000;
+const EXPIRY_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How urgently the soonest of `expiries` (epoch ms) is approaching at `nowMs`:
+ * "critical" within 48 h, "warning" within 7 days, "normal" beyond that, and
+ * null when nothing expires (no dot to draw).
+ * @returns {"critical" | "normal" | "warning" | null}
+ */
+export function expirySeverity(expiries, nowMs) {
+  if (!Array.isArray(expiries) || expiries.length === 0) return null;
+  const now = Number(nowMs) || 0;
+  let soonest = Infinity;
+  for (const at of expiries) {
+    const ms = Number(at);
+    if (Number.isFinite(ms) && ms < soonest) soonest = ms;
+  }
+  if (soonest === Infinity) return null;
+  const remaining = soonest - now;
+  if (remaining <= EXPIRY_CRITICAL_MS) return "critical";
+  if (remaining <= EXPIRY_WARNING_MS) return "warning";
+  return "normal";
+}
+
+/** The block's detail lines as one hover text; "" when it has none. */
+export function blockTooltip(row) {
+  const body = row && Array.isArray(row.body) ? row.body : [];
+  return body.map((line) => String(line)).join("\n");
 }
 
 export function formatDuration(milliseconds) {
@@ -449,7 +498,13 @@ export function projectCards(payload, nowMs) {
         row.key = rowKey(row);
         rows.push(row);
       } else if (section.type === "block" && section.body && section.body.length) {
-        const row = { kind: "block", label: section.label, body: section.body };
+        const row = {
+          kind: "block",
+          label: section.label,
+          body: section.body,
+          summary: section.summary || "",
+          expiries: Array.isArray(section.expiries) ? section.expiries : [],
+        };
         row.key = rowKey(row);
         rows.push(row);
       }

@@ -57,9 +57,13 @@ export interface TextRow {
 
 export interface BlockRow {
   body: string[];
+  /** Epoch ms of what the block's rows expire at; empty when nothing does. */
+  expiries: number[];
   key?: string;
   kind: "block";
   label: string;
+  /** One-line reading of the block; "" when the host gives none. */
+  summary: string;
 }
 
 export type Row = BlockRow | MetricRow | TextRow;
@@ -114,7 +118,11 @@ export interface TextSection {
 
 export interface BlockSection {
   body: string[];
+  /** Epoch ms of what the block's rows expire at; empty when nothing does. */
+  expiries: number[];
   label: string;
+  /** One-line reading of the block; "" when the host gives none. */
+  summary: string;
   type: "block";
 }
 
