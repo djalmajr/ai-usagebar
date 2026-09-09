@@ -143,17 +143,31 @@ impl ScoopApp {
     /// `scoop update <name>` (which refuses while the exe is running), and
     /// starts the updated tray with the relaunch marker set so it waits for
     /// the single-instance mutex instead of quitting. Everything is
-    /// transcribed to `log` for the user to read when it goes wrong.
+    /// transcribed to `log` for the user to read when it goes wrong, with the
+    /// PowerShell and git in use named first.
+    ///
+    /// `scoop update <app>` also updates Scoop itself when it thinks it is
+    /// stale, and a `git pull` that fails there aborts the whole update; a
+    /// network blip at the wrong second must not strand the user on the old
+    /// version, so the update is tried up to three times, five seconds apart.
+    /// The relaunch happens either way: `current` still points at whatever
+    /// version Scoop left in place.
     pub fn update_script(&self, tray_pid: u32, log: &Path) -> String {
         let exe = self.current_exe_path(TRAY_BIN);
         let dir = self.app_dir().join("current");
+        let name = quote(&self.name);
         [
             format!(
                 "Start-Transcript -Path '{}' -Force",
                 quote(&log.display().to_string())
             ),
+            "Write-Host (\"PowerShell $($PSVersionTable.PSVersion); git: \" + (Get-Command git -ErrorAction SilentlyContinue).Source)".to_owned(),
             format!("Wait-Process -Id {tray_pid} -ErrorAction SilentlyContinue"),
-            format!("scoop update '{}'", quote(&self.name)),
+            "$updated = $false".to_owned(),
+            format!(
+                "for ($attempt = 1; $attempt -le 3 -and -not $updated; $attempt++) {{ Write-Host \"scoop update '{name}' (attempt $attempt)\"; scoop update '{name}' 2>&1 | Out-Host; if ($LASTEXITCODE -eq 0) {{ $updated = $true }} else {{ Start-Sleep -Seconds 5 }} }}"
+            ),
+            "Write-Host \"updated: $updated\"".to_owned(),
             format!("$env:{RELAUNCH_ENV} = '1'"),
             format!(
                 "Start-Process -FilePath '{}' -WorkingDirectory '{}'",
@@ -368,7 +382,13 @@ mod tests {
             .display()
             .to_string();
         assert!(script.contains("Wait-Process -Id 4242"), "{script}");
-        assert!(script.contains("scoop update 'ai-usagebar'"), "{script}");
+        assert!(
+            script.contains("scoop update 'ai-usagebar' 2>&1"),
+            "{script}"
+        );
+        assert!(script.contains("$attempt -le 3"), "{script}");
+        assert!(script.contains("Start-Sleep -Seconds 5"), "{script}");
+        assert!(script.contains("Get-Command git"), "{script}");
         assert!(script.contains(&format!("-FilePath '{exe}'")), "{script}");
         assert!(script.contains("$env:AIUB_TRAY_RELAUNCH = '1'"), "{script}");
         assert!(
