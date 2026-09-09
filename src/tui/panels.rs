@@ -63,6 +63,15 @@ pub(crate) struct SectionProjection {
     /// whose window length the vendor never states — a frontend can pace a
     /// metric only when this is `Some`.
     pub window: Option<chrono::Duration>,
+    /// One-line reading of a `Section::Block` for frontends that show a
+    /// block as a single row (the Windows popover): the balance, or "3
+    /// available". `None` for every other section; the block's `body`
+    /// stays the full detail.
+    pub summary: Option<String>,
+    /// Expiry instants the block's rows carry (banked reset credits), so a
+    /// frontend can color the row by the soonest one without parsing the
+    /// body text. Empty when nothing in the block expires.
+    pub expiries: Vec<DateTime<Utc>>,
 }
 
 struct SectionBuilder(Vec<SectionProjection>);
@@ -81,6 +90,8 @@ impl SectionBuilder {
                         section,
                         reset_at: None,
                         window: None,
+                        summary: None,
+                        expiries: Vec::new(),
                     }
                 })
                 .collect(),
@@ -96,6 +107,27 @@ impl SectionBuilder {
             section,
             reset_at: None,
             window: None,
+            summary: None,
+            expiries: Vec::new(),
+        });
+    }
+
+    /// A block that a one-row frontend may fold to `summary`, colored by the
+    /// soonest of `expiries`. The block's body stays intact for the TUI and
+    /// for the hover detail.
+    fn push_block_summarized(
+        &mut self,
+        section: Section,
+        summary: String,
+        expiries: Vec<DateTime<Utc>>,
+    ) {
+        assert!(matches!(section, Section::Block { .. }));
+        self.0.push(SectionProjection {
+            section,
+            reset_at: None,
+            window: None,
+            summary: Some(summary),
+            expiries,
         });
     }
 
@@ -107,6 +139,8 @@ impl SectionBuilder {
             section,
             reset_at,
             window: None,
+            summary: None,
+            expiries: Vec::new(),
         });
     }
 
@@ -123,6 +157,8 @@ impl SectionBuilder {
             section,
             reset_at,
             window: Some(window),
+            summary: None,
+            expiries: Vec::new(),
         });
     }
 }
@@ -671,10 +707,14 @@ fn openai_sections(
         if let Some((lo, hi)) = c.approx_cloud_messages {
             body.push(format!("≈ {lo}-{hi} cloud messages"));
         }
-        v.push(Section::Block {
-            label: "Credits".into(),
-            body,
-        });
+        v.push_block_summarized(
+            Section::Block {
+                label: "Credits".into(),
+                body,
+            },
+            balance,
+            Vec::new(),
+        );
     }
     push_reset_credits(&mut v, &s.reset_credits, now);
     v
@@ -1254,10 +1294,18 @@ fn push_reset_credits(
         return;
     }
     v.push(Section::Spacer);
-    v.push(Section::Block {
-        label: "Reset credits".into(),
-        body: reset_credit_lines(credits, now),
-    });
+    v.push_block_summarized(
+        Section::Block {
+            label: "Reset credits".into(),
+            body: reset_credit_lines(credits, now),
+        },
+        format!("{} available", credits.available),
+        credits
+            .credits
+            .iter()
+            .filter_map(|credit| credit.expires_at)
+            .collect(),
+    );
 }
 
 fn deepseek_sections(s: &crate::usage::DeepseekSnapshot) -> SectionBuilder {

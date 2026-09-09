@@ -20,9 +20,11 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
+  blockTooltip,
   cardHasExtras,
   condensedTextRowIndexes,
   displayPlan,
+  expirySeverity,
   explainError,
   headlineAlternate,
   headlineLabel,
@@ -105,7 +107,7 @@ export function ProviderSection({
           onToggleShowAs={onToggleShowAs}
         />
       ) : (
-        <TextRow key={key} condensedTop={condensed.has(index)} row={row} />
+        <TextRow key={key} condensedTop={condensed.has(index)} nowMs={nowMs} row={row} />
       );
     if (!onRowAction || lifted) return node;
     return (
@@ -309,19 +311,39 @@ function MetricRow({ layout, nowMs, onToggleResetTimes, onToggleShowAs, row }: M
 
 interface TextRowProps {
   condensedTop: boolean;
+  nowMs: number;
   row: BlockRow | TextRowData;
 }
 
-/** Unbounded row: no bar. Label on the left, the value (or block lines) right-aligned. */
-function TextRow({ condensedTop, row }: TextRowProps) {
+/**
+ * Unbounded row: no bar. Label on the left, the value (or block lines) right-aligned. A block
+ * the host summarized folds to one line — a status dot colored by its soonest expiry, then
+ * the summary — and keeps its detail lines in the hover.
+ */
+function TextRow({ condensedTop, nowMs, row }: TextRowProps) {
+  const rowClass = cn(
+    "flex items-start gap-[10px] px-[14px] pb-[var(--pad-text-row)]",
+    condensedTop ? "pt-[var(--pad-text-row-condensed)]" : "pt-[var(--pad-text-row)]",
+  );
+  if (row.kind === "block" && row.summary) {
+    const severity = expirySeverity(row.expiries, nowMs);
+    return (
+      <div className={rowClass}>
+        <span className="shrink-0 text-[length:var(--sz-support)] font-semibold">{row.label}</span>
+        <span className="min-w-3 flex-1" />
+        <span
+          className="flex min-w-0 max-w-full items-center gap-[6px] text-right text-[length:var(--sz-support)] tabular-nums"
+          title={blockTooltip(row) || undefined}
+        >
+          {severity ? <span aria-hidden="true" className="status-dot" data-severity={severity} /> : null}
+          <span className="truncate">{row.summary}</span>
+        </span>
+      </div>
+    );
+  }
   const lines = row.kind === "block" ? row.body : [row.value];
   return (
-    <div
-      className={cn(
-        "flex items-start gap-[10px] px-[14px] pb-[var(--pad-text-row)]",
-        condensedTop ? "pt-[var(--pad-text-row-condensed)]" : "pt-[var(--pad-text-row)]",
-      )}
-    >
+    <div className={rowClass}>
       <span className="shrink-0 text-[length:var(--sz-support)] font-semibold">{row.label}</span>
       <span className="min-w-3 flex-1" />
       <span className="flex min-w-0 max-w-full flex-col items-end gap-[2px] text-right text-[length:var(--sz-support)] tabular-nums">

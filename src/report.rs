@@ -70,6 +70,15 @@ enum ReportSection {
     Block {
         label: String,
         body: Vec<String>,
+        /// One-line reading of the block for a frontend that shows it as a
+        /// single row — a balance, or "3 available". Present only where the
+        /// projection supplies one; `body` remains the full detail.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        /// Expiry instants of the block's rows (banked reset credits), so a
+        /// frontend can color the row by the soonest one. Omitted when empty.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        expiries: Vec<DateTime<Utc>>,
     },
     Spacer,
 }
@@ -234,7 +243,12 @@ fn entry_from_state(tab: &TabId, state: &TabState, now: chrono::DateTime<Utc>) -
                 entry.sections.push(ReportSection::Text { label, value });
             }
             Section::Block { label, body } => {
-                entry.sections.push(ReportSection::Block { label, body });
+                entry.sections.push(ReportSection::Block {
+                    label,
+                    body,
+                    summary: projected.summary,
+                    expiries: projected.expiries,
+                });
             }
             Section::Spacer => entry.sections.push(ReportSection::Spacer),
         }
@@ -433,7 +447,9 @@ fn render_text(entries: &[Entry]) -> String {
                         body.push_str(&format!("  {label:width$}  {value}\n"));
                     }
                 }
-                ReportSection::Block { label, body: lines } => {
+                ReportSection::Block {
+                    label, body: lines, ..
+                } => {
                     body.push_str(&format!("  {label}\n"));
                     for line in lines {
                         body.push_str(&format!("    {line}\n"));
@@ -452,8 +468,12 @@ fn render_text(entries: &[Entry]) -> String {
 mod tests {
     use super::*;
     use crate::tui::app::ReadyTab;
+    use chrono::TimeZone;
+
     use crate::usage::{
-        DeepseekSnapshot, KimiSnapshot, KiroSnapshot, OpenRouterSnapshot, VendorSnapshot,
+        DeepseekSnapshot, KimiSnapshot, KiroSnapshot, OpenAiCredits, OpenAiSnapshot, OpenAiSource,
+        OpenRouterSnapshot, ResetCredit, ResetCredits, SuperGrokPeriod, SuperGrokSnapshot,
+        VendorSnapshot,
     };
     use crate::vendor::VendorId;
 
@@ -836,6 +856,8 @@ mod tests {
                     ReportSection::Block {
                         label: "Usage by period".into(),
                         body: vec!["today $1.00 · week $5.00".into()],
+                        summary: None,
+                        expiries: Vec::new(),
                     },
                 ],
             )],
@@ -883,6 +905,180 @@ mod tests {
         assert!(
             text.contains("today $1.00 · week $5.00 · month $25.00"),
             "{text}"
+        );
+    }
+
+    fn fixed_now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 5, 23, 12, 0, 0).unwrap()
+    }
+
+    fn banked(now: DateTime<Utc>) -> ResetCredits {
+        ResetCredits {
+            available: 3,
+            credits: vec![
+                ResetCredit {
+                    title: Some("Full reset (Weekly + 5 hr)".into()),
+                    expires_at: Some(now + chrono::Duration::days(11)),
+                },
+                ResetCredit {
+                    title: Some("Full reset (Weekly + 5 hr)".into()),
+                    expires_at: Some(now + chrono::Duration::days(13)),
+                },
+                ResetCredit {
+                    title: None,
+                    expires_at: None,
+                },
+            ],
+        }
+    }
+
+    fn sections_json(
+        vendor: VendorId,
+        snapshot: VendorSnapshot,
+        now: DateTime<Utc>,
+    ) -> serde_json::Value {
+        let state = TabState::Ready(Box::new(ReadyTab {
+            snapshot,
+            stale: false,
+            last_error: None,
+            fetched_at: None,
+        }));
+        let projected = entry_from_state(&TabId::vendor(vendor), &state, now);
+        let rendered = render_json_entries(&[projected]);
+        let value: serde_json::Value = serde_json::from_str(&rendered).unwrap();
+        value["entries"][0]["sections"].clone()
+    }
+
+    fn block_by_label(sections: &serde_json::Value, label: &str) -> serde_json::Value {
+        sections
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|section| section["type"] == "block" && section["label"] == label)
+            .cloned()
+            .unwrap_or_else(|| panic!("no {label} block in {sections}"))
+    }
+
+    /// The Codex credits blocks keep their full body and gain the one-line
+    /// reading a single-row frontend folds them to, with the expiries it
+    /// colors that row by.
+    #[test]
+    fn json_codex_blocks_carry_summary_and_expiries() {
+        let now = fixed_now();
+        let sections = sections_json(
+            VendorId::Openai,
+            VendorSnapshot::Openai(OpenAiSnapshot {
+                plan: "ChatGPT Plus".into(),
+                session: None,
+                weekly: None,
+                code_review: None,
+                additional_limits: Vec::new(),
+                unavailable_models: Vec::new(),
+                credits: Some(OpenAiCredits {
+                    balance: "$0.00".into(),
+                    has_credits: false,
+                    unlimited: false,
+                    approx_local_messages: Some((0, 0)),
+                    approx_cloud_messages: Some((0, 0)),
+                }),
+                reset_credits: banked(now),
+                source: OpenAiSource::CodexOauth,
+            }),
+            now,
+        );
+
+        let credits = block_by_label(&sections, "Credits");
+        assert_eq!(credits["summary"], "$0.00");
+        assert_eq!(credits["body"][0], "balance: $0.00");
+        assert_eq!(credits["body"].as_array().unwrap().len(), 3);
+        assert!(credits.get("expiries").is_none(), "{credits}");
+
+        let resets = block_by_label(&sections, "Reset credits");
+        assert_eq!(resets["summary"], "3 available");
+        assert_eq!(resets["body"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            resets["expiries"],
+            serde_json::json!([
+                now + chrono::Duration::days(11),
+                now + chrono::Duration::days(13)
+            ])
+        );
+    }
+
+    #[test]
+    fn json_unlimited_codex_credits_summarize_as_unlimited() {
+        let now = fixed_now();
+        let sections = sections_json(
+            VendorId::Openai,
+            VendorSnapshot::Openai(OpenAiSnapshot {
+                plan: "ChatGPT Pro".into(),
+                session: None,
+                weekly: None,
+                code_review: None,
+                additional_limits: Vec::new(),
+                unavailable_models: Vec::new(),
+                credits: Some(OpenAiCredits {
+                    balance: "$0.00".into(),
+                    has_credits: true,
+                    unlimited: true,
+                    approx_local_messages: None,
+                    approx_cloud_messages: None,
+                }),
+                reset_credits: ResetCredits::default(),
+                source: OpenAiSource::CodexOauth,
+            }),
+            now,
+        );
+        let credits = block_by_label(&sections, "Credits");
+        assert_eq!(credits["summary"], "unlimited");
+        assert_eq!(credits["body"], serde_json::json!(["balance: unlimited"]));
+    }
+
+    #[test]
+    fn json_supergrok_reset_credits_carry_summary_and_expiries() {
+        let now = fixed_now();
+        let sections = sections_json(
+            VendorId::Supergrok,
+            VendorSnapshot::SuperGrok(SuperGrokSnapshot {
+                plan: "SuperGrok".into(),
+                account: "scope".into(),
+                weekly_pct: 30,
+                period: SuperGrokPeriod::Weekly,
+                reset_at: Some(now + chrono::Duration::days(3)),
+                prepaid_balance: None,
+                reset_credits: banked(now),
+            }),
+            now,
+        );
+        let resets = block_by_label(&sections, "Reset credits");
+        assert_eq!(resets["summary"], "3 available");
+        assert_eq!(resets["expiries"].as_array().unwrap().len(), 2);
+        assert_eq!(resets["body"].as_array().unwrap().len(), 3);
+    }
+
+    /// Every block that has no one-line reading serializes exactly as before:
+    /// neither optional key appears.
+    #[test]
+    fn json_plain_blocks_omit_summary_and_expiries() {
+        let sections = sections_json(
+            VendorId::Deepseek,
+            VendorSnapshot::Deepseek(DeepseekSnapshot {
+                is_available: true,
+                balance: 12.5,
+                granted: 2.5,
+                topped_up: 10.0,
+                currency: "USD".into(),
+            }),
+            fixed_now(),
+        );
+        let breakdown = block_by_label(&sections, "Breakdown");
+        assert_eq!(
+            breakdown,
+            serde_json::json!({
+                "type": "block",
+                "label": "Breakdown",
+                "body": ["granted $2.50 · topped-up $10.00"]
+            })
         );
     }
 
