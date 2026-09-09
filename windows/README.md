@@ -124,10 +124,11 @@ assets it looks for (`ai-usagebar-<bin>-windows-x86_64.exe` + `.sha256`) are
 produced by the Windows job in `.github/workflows/release.yml`, so the first
 release cut after this change is the first one the tray can install.
 
-**Installed with Scoop** (the Settings line says so): the tray never swaps
-exes under Scoop's tree. A check runs `scoop update` (refreshing every
-bucket) and reads the version in the bucket's manifest; the button then
-reads **Update via Scoop**. Installing starts a detached PowerShell that
+**Installed with Scoop**: the tray never swaps exes under Scoop's tree, and
+the popover does not say so — there is only one way to update, so the buttons
+read the same as for a zip install. A check runs `scoop update` (refreshing
+every bucket) and reads the version in the bucket's manifest; **Update** then
+starts a detached PowerShell that
 waits for the tray to exit, runs `scoop update ai-usagebar`, and starts the
 new tray from `apps\ai-usagebar\current` — the tray quits itself for that,
 so a few seconds without the icon are expected. The transcript of that run
