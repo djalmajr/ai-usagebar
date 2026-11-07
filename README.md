@@ -1,9 +1,12 @@
-# App Icon and favorites visual review
+# App Icon, favorites and provider headers: visual review
 
-Before: upstream `59573ff3cb4546781ba8090902e7fc65cedf0ad4`. After: UI branch `4e1396521acf874821f8de154e68689f93a4467f`.
+The original favorites/picker comparisons use upstream `59573ff` before and UI `4e13965` after. The header/focus follow-up compares `4e13965` before with `6afb529` after.
 
-`favorites-contact.png` compares Classic, Native macOS and Native Windows in light and dark themes. `picker-contact.png` compares the macOS-only Menu Bar Shows picker in Classic and Native, in both themes. Each row labels before and after.
+- `favorites-contact.png`: Classic, Native macOS and Native Windows, light/dark.
+- `picker-contact.png`: macOS Menu Bar Shows picker in Classic and Native, light/dark.
+- `headers-contact.png`: single-account provider header before/after, all six style/theme combinations.
+- `account-focus-comparison.png`: multiple accounts, selected by keyboard, before/after in all six combinations. The Native Windows focus indicator was previously invisible.
 
-Captures use production Vite bundles in isolated Chromium with the repository's fictitious fixture payload. These are browser captures, not native Windows host runs. The fixture's displayed version is set to 1.49.0 for both bundles.
+Each comparison labels before and after. Captures use production Vite bundles and the repository's fictitious fixture data in isolated Chromium. Windows is a browser preview, not native Windows execution.
 
-`native-gauge-on-white.png` is a real AppKit NSImage render of the new SVG at 18 points and 2x resolution, shown on white for legibility. It is not a capture of the installed menu bar. Native menu-bar capture was unavailable.
+`native-gauge-on-white.png` is an actual AppKit NSImage render at 18 points and 2x, on white for legibility. It is not a capture of the installed menu bar; native menu-bar capture was unavailable.
